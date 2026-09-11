@@ -183,13 +183,40 @@ class HardwareTests(unittest.TestCase):
                 return ""
             raise AssertionError(f"unexpected command {args[0]}")
 
-        with patch.object(h, "command", side_effect=fake_command) as cmd, patch.object(h.time, "sleep"):
+        with patch.object(h, "command", side_effect=fake_command) as cmd, patch.object(h.time, "sleep"), \
+                patch.object(h, "is_app_running", return_value=True):
             message = h.relaunch_pending_games(os.getuid(), wait_seconds=6)
             self.assertIn("Reopened dota", message)
             self.assertIn("saved in-game", message)
             self.assertTrue(any(c.args[0] == "runuser" for c in cmd.call_args_list))
             self.assertEqual(h.load_pending_games(), [])
             self.assertIn("Reopened dota", h.load(self.run / "result.json")["message"])
+
+    def test_relaunch_resends_url_until_game_process_appears(self):
+        import os
+        h.save(self.run / "pending_relaunch.json", {"games": [{"appid": 570, "name": "dota"}]})
+        launches = []
+
+        def fake_command(*args, **kwargs):
+            if args[0] == "pgrep":
+                return "999"
+            launches.append(args)
+            return ""
+
+        with patch.object(h, "command", side_effect=fake_command), patch.object(h.time, "sleep"), \
+                patch.object(h, "is_app_running", side_effect=[False] * 30 + [True]):
+            message = h.relaunch_pending_games(os.getuid(), wait_seconds=2)
+            self.assertIn("Reopened dota", message)
+            self.assertEqual(len(launches), 2)
+
+    def test_relaunch_reports_game_that_never_starts(self):
+        import os
+        h.save(self.run / "pending_relaunch.json", {"games": [{"appid": 570, "name": "dota"}]})
+        with patch.object(h, "command", return_value="999"), patch.object(h.time, "sleep"), \
+                patch.object(h, "is_app_running", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "did not start"):
+                h.relaunch_pending_games(os.getuid(), wait_seconds=2)
+            self.assertEqual(h.load_pending_games(), [])
 
     def test_relaunch_gives_up_when_steam_never_returns(self):
         h.save(self.run / "pending_relaunch.json", {"games": [{"appid": 570, "name": "dota"}]})

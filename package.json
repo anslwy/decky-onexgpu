@@ -1,6 +1,6 @@
 {
   "name": "decky-onexgpu",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Minimal standalone ONEXGPU 2 helper for Decky Loader",
   "author": "decky-onexgpu contributors",
   "license": "MIT",

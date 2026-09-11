@@ -14,7 +14,7 @@ A minimal **Decky Loader** plugin focused on **ONEXGPU 2 / AMD eGPUs**, with a s
 
 ### Reopen game after resume
 
-When the toggle is on, **Eject eGPU then sleep** records the running Steam games (via their `SteamAppId`) before the session stops. After resume — and after the automatic switch when that is also on — the helper waits up to two minutes for the Steam client to come back, then relaunches the recorded games with `steam://rungameid/<id>` as your user. Status shows the queued game as "Will reopen".
+When the toggle is on, **Eject eGPU then sleep** records the running Steam games (via their `SteamAppId`) before the session stops. After resume — and after the automatic switch when that is also on — the helper waits up to two minutes for the Steam client to come back, gives it a grace period to finish logging in, then relaunches the recorded games with `steam://rungameid/<id>` as your user. It verifies the game process actually appeared and resends the launch up to three times; a game that never starts is reported in Status instead of silently skipped. Status shows the queued game as "Will reopen".
 
 Limits, stated plainly: this reopens the game, it does not restore where you were — unsaved progress is lost, so save in-game first. It covers Steam games only, and relaunching needs the Steam client to return on its own after the session restart. Turning the toggle off discards any queued game.
 

@@ -289,6 +289,20 @@ def steam_running(uid: int) -> bool:
     return bool(command("pgrep", "-u", str(uid), "-x", "steam", check=False))
 
 
+def is_app_running(appid: int) -> bool:
+    return any(game["appid"] == appid for game in running_steam_games())
+
+
+# The Steam client takes a while to log back in after a session restart, and a
+# launch URL sent to a half-started client is silently dropped (confirmed on
+# hardware: relaunch fired 4s after the switch began, reported success, but no
+# game appeared). So: grace period after Steam shows up, then verify the game
+# process actually exists and resend the URL if it doesn't.
+REOPEN_GRACE_SECONDS = 15
+REOPEN_ATTEMPTS = 3
+REOPEN_POLL_SECONDS = 60
+
+
 def relaunch_pending_games(uid: int, wait_seconds: int = 120) -> str:
     """Relaunch games snapshotted before eject, once the Steam client is back.
     Only reopens the game; in-game progress is whatever was saved to disk."""
@@ -301,6 +315,7 @@ def relaunch_pending_games(uid: int, wait_seconds: int = 120) -> str:
         time.sleep(2)
     else:
         raise RuntimeError("Steam client did not come back after resume; game left closed.")
+    time.sleep(REOPEN_GRACE_SECONDS)
     try:
         user = pwd.getpwuid(uid)
     except KeyError:
@@ -312,14 +327,26 @@ def relaunch_pending_games(uid: int, wait_seconds: int = 120) -> str:
         except (TypeError, ValueError):
             failed.append(f"{game.get('name') or '?'} (bad app id)")
             continue
-        try:
-            command("runuser", "-u", user.pw_name, "--", "env",
-                    f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus",
-                    f"XDG_RUNTIME_DIR=/run/user/{uid}", f"HOME={user.pw_dir}",
-                    "/usr/bin/steam", f"steam://rungameid/{appid}", timeout=30)
+        started, last_err = False, ""
+        for _ in range(REOPEN_ATTEMPTS):
+            try:
+                command("runuser", "-u", user.pw_name, "--", "env",
+                        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus",
+                        f"XDG_RUNTIME_DIR=/run/user/{uid}", f"HOME={user.pw_dir}",
+                        "/usr/bin/steam", f"steam://rungameid/{appid}", timeout=30)
+            except RuntimeError as exc:
+                last_err = str(exc)
+            for _ in range(REOPEN_POLL_SECONDS // 2):
+                if is_app_running(appid):
+                    started = True
+                    break
+                time.sleep(2)
+            if started:
+                break
+        if started:
             launched.append(game.get("name") or str(appid))
-        except RuntimeError as exc:
-            failed.append(f"{game.get('name') or appid} ({exc})")
+        else:
+            failed.append(f"{game.get('name') or appid} ({last_err or 'game did not start'})")
         time.sleep(3)
     clear_pending_games()
     if failed and not launched:
