@@ -1,0 +1,11 @@
+{
+  "name": "decky-onexgpu",
+  "author": "decky-onexgpu contributors",
+  "flags": ["root"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["utility", "egpu"],
+    "description": "Standalone ONEXGPU 2 switching, eject and auto-switch on wake.",
+    "image": ""
+  }
+}
