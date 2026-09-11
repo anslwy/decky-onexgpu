@@ -10,7 +10,7 @@ on:
         description: Create a draft release for review before publishing
         required: true
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read

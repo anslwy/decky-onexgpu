@@ -46,7 +46,7 @@ The archive includes only the runtime files, metadata and documentation. Setting
 
 ### GitHub releases
 
-In GitHub, open **Actions → Release plugin → Run workflow**, select the branch, and leave **Create a draft release** checked to review the release before publishing. The action builds the current `package.json` version and attaches `decky-onexgpu.zip` to a release named `v<version>`. Uncheck the draft option to publish immediately.
+In GitHub, open **Actions → Release plugin → Run workflow**, select the branch, and run it to publish the release immediately. The action builds the current `package.json` version and attaches `decky-onexgpu.zip` to a release named `v<version>`. Check **Create a draft release** first if you want to review it before publishing instead.
 
 Alternatively, pushing a matching version tag publishes the release automatically:
 
