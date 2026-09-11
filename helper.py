@@ -6,11 +6,13 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import subprocess
 import time
 
 SYS = Path("/sys")
+PROC = Path("/proc")
 RUN = Path("/run/decky-onexgpu")
 UNIT = "decky-onexgpu-operation.service"
 BDF = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$")
@@ -239,6 +241,94 @@ def eject_functions(gpu: dict) -> list[Path]:
     if any(read(p / "class")[:4] != "0x03" and read(p / "class") != "0x040300" for p in paths):
         raise RuntimeError("Unexpected GPU sibling function; automatic eject is not supported")
     return paths
+
+
+def running_steam_games() -> list[dict]:
+    """Steam games currently running, found via the SteamAppId environment
+    variable Steam sets on every game process. AppId 0 is the client itself."""
+    games: dict[int, str] = {}
+    for proc in sorted(PROC.glob("[0-9]*"), key=lambda p: int(p.name)):
+        try:
+            env = (proc / "environ").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        appid = None
+        for entry in env:
+            if entry.startswith(b"SteamAppId="):
+                try:
+                    appid = int(entry.split(b"=", 1)[1])
+                except ValueError:
+                    appid = None
+                break
+        if not appid or appid in games:
+            continue
+        try:
+            games[appid] = (proc / "comm").read_text().strip()
+        except OSError:
+            games[appid] = f"app {appid}"
+    return [{"appid": appid, "name": games[appid]} for appid in sorted(games)]
+
+
+def snapshot_games_for_relaunch() -> list[dict]:
+    games = running_steam_games()
+    save(RUN / "pending_relaunch.json", {"games": games})
+    return games
+
+
+def load_pending_games() -> list[dict]:
+    data = load(RUN / "pending_relaunch.json")
+    games = data.get("games")
+    return [g for g in games if isinstance(g, dict) and g.get("appid")] if isinstance(games, list) else []
+
+
+def clear_pending_games():
+    save(RUN / "pending_relaunch.json", {"games": []})
+
+
+def steam_running(uid: int) -> bool:
+    return bool(command("pgrep", "-u", str(uid), "-x", "steam", check=False))
+
+
+def relaunch_pending_games(uid: int, wait_seconds: int = 120) -> str:
+    """Relaunch games snapshotted before eject, once the Steam client is back.
+    Only reopens the game; in-game progress is whatever was saved to disk."""
+    games = load_pending_games()
+    if not games:
+        return "No game to reopen."
+    for _ in range(wait_seconds // 2):
+        if steam_running(uid):
+            break
+        time.sleep(2)
+    else:
+        raise RuntimeError("Steam client did not come back after resume; game left closed.")
+    try:
+        user = pwd.getpwuid(uid)
+    except KeyError:
+        raise RuntimeError(f"Cannot resolve username for uid {uid}")
+    launched, failed = [], []
+    for game in games:
+        try:
+            appid = int(game["appid"])
+        except (TypeError, ValueError):
+            failed.append(f"{game.get('name') or '?'} (bad app id)")
+            continue
+        try:
+            command("runuser", "-u", user.pw_name, "--", "env",
+                    f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus",
+                    f"XDG_RUNTIME_DIR=/run/user/{uid}", f"HOME={user.pw_dir}",
+                    "/usr/bin/steam", f"steam://rungameid/{appid}", timeout=30)
+            launched.append(game.get("name") or str(appid))
+        except RuntimeError as exc:
+            failed.append(f"{game.get('name') or appid} ({exc})")
+        time.sleep(3)
+    clear_pending_games()
+    if failed and not launched:
+        raise RuntimeError("Could not reopen: " + "; ".join(failed))
+    message = "Reopened " + ", ".join(launched) + " after resume. Progress is only what was saved in-game."
+    if failed:
+        message += " Failed: " + "; ".join(failed)
+    save(RUN / "result.json", {"message": message})
+    return message
 
 
 def suspend_and_wait():

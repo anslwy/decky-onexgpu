@@ -2,14 +2,21 @@
 
 A minimal **Decky Loader** plugin focused on **ONEXGPU 2 / AMD eGPUs**, with a standalone Python backend. No all-ways-egpu installation or setup is required.
 
-## The six fields
+## The seven fields
 
 1. **Eject eGPU then sleep** — eject first, suspend only after successful removal, restart the session on wake.
-2. **Eject eGPU** — select the internal GPU, stop the session, unbind/remove GPU and HDMI audio, restart on the internal GPU.
-3. **Switch to eGPU** — rescan if necessary, select the eGPU, restart the graphical session.
-4. **Status** — detected GPU model, PCI address, selected primary flag, driver power cap, and operation result.
-5. **Auto-switch on wake** — persistent, off by default. Wait for an in-flight eject to finish, rescan/wait up to 20 seconds for the eGPU, and switch after resume.
-6. **Restart Display Manager** — session recovery.
+2. **Reopen game after resume** — toggle, off by default. Relaunch the running Steam game after resume (see below).
+3. **Eject eGPU** — select the internal GPU, stop the session, unbind/remove GPU and HDMI audio, restart on the internal GPU.
+4. **Switch to eGPU** — rescan if necessary, select the eGPU, restart the graphical session.
+5. **Status** — detected GPU model, PCI address, selected primary flag, driver power cap, queued reopen, and operation result.
+6. **Auto-switch on wake** — persistent, off by default. Wait for an in-flight eject to finish, rescan/wait up to 20 seconds for the eGPU, and switch after resume.
+7. **Restart Display Manager** — session recovery.
+
+### Reopen game after resume
+
+When the toggle is on, **Eject eGPU then sleep** records the running Steam games (via their `SteamAppId`) before the session stops. After resume — and after the automatic switch when that is also on — the helper waits up to two minutes for the Steam client to come back, then relaunches the recorded games with `steam://rungameid/<id>` as your user. Status shows the queued game as "Will reopen".
+
+Limits, stated plainly: this reopens the game, it does not restore where you were — unsaved progress is lost, so save in-game first. It covers Steam games only, and relaunching needs the Steam client to return on its own after the session restart. Turning the toggle off discards any queued game.
 
 The two eject buttons appear only while an eGPU is connected. **Switch to eGPU** appears when the eGPU is disconnected or is not selected as primary. These actions stay hidden until the first status response and are disabled during an operation.
 
@@ -84,7 +91,7 @@ Inspired by [TiPSilva/egpu-switch](https://github.com/TiPSilva/egpu-switch) and 
 
 Validated on the supplied CachyOS handheld (kernel `7.2.3-1-cachyos-deckify`, Decky `v3.2.8`, Gamescope `3.16.25`):
 
-- TypeScript typecheck, Rollup production build and 12 backend unit tests passed.
+- TypeScript typecheck, Rollup production build and 19 backend unit tests passed.
 - Decky loaded the installed plugin backend successfully.
 - Live eGPU selection, GPU/audio PCI eject, PCI rescan and re-selection succeeded.
 - Gamescope's journal confirmed the renderer changed from `AMD Ryzen Z1 Extreme (RADV PHOENIX)` on the internal session to `AMD Radeon RX 7800M (RADV NAVI32)` after the automatic eGPU switch.

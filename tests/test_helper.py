@@ -146,6 +146,58 @@ class HardwareTests(unittest.TestCase):
             h.start_session(1000)
             self.assertEqual(cmd.call_count, 2)
 
+    def fake_proc(self, pid, environ=None, name="game"):
+        path = self.root / "proc" / pid
+        path.mkdir(parents=True)
+        if environ is not None:
+            (path / "environ").write_bytes(environ)
+        (path / "comm").write_text(name)
+        return path
+
+    def test_snapshot_finds_games_and_skips_client(self):
+        self.fake_proc("100", b"HOME=/x\0SteamAppId=1234\0", "eldenring")
+        self.fake_proc("200", b"SteamAppId=0\0", "steam")
+        self.fake_proc("300", b"PATH=/usr/bin\0", "other")
+        self.fake_proc("400", b"SteamAppId=1234\0", "eldenring-dup")
+        with patch.object(h, "PROC", self.root / "proc"):
+            games = h.snapshot_games_for_relaunch()
+            self.assertEqual(games, [{"appid": 1234, "name": "eldenring"}])
+            self.assertEqual(h.load_pending_games(), games)
+
+    def test_relaunch_empty_pending_is_noop(self):
+        with patch.object(h, "command") as cmd:
+            self.assertEqual(h.relaunch_pending_games(1000), "No game to reopen.")
+            cmd.assert_not_called()
+
+    def test_relaunch_waits_for_steam_then_launches(self):
+        import os
+        h.save(self.run / "pending_relaunch.json", {"games": [{"appid": 570, "name": "dota"}]})
+        calls = {"pgrep": 0}
+
+        def fake_command(*args, **kwargs):
+            if args[0] == "pgrep":
+                calls["pgrep"] += 1
+                return "" if calls["pgrep"] < 2 else "999"
+            if args[0] == "runuser":
+                self.assertIn("steam://rungameid/570", args)
+                return ""
+            raise AssertionError(f"unexpected command {args[0]}")
+
+        with patch.object(h, "command", side_effect=fake_command) as cmd, patch.object(h.time, "sleep"):
+            message = h.relaunch_pending_games(os.getuid(), wait_seconds=6)
+            self.assertIn("Reopened dota", message)
+            self.assertIn("saved in-game", message)
+            self.assertTrue(any(c.args[0] == "runuser" for c in cmd.call_args_list))
+            self.assertEqual(h.load_pending_games(), [])
+            self.assertIn("Reopened dota", h.load(self.run / "result.json")["message"])
+
+    def test_relaunch_gives_up_when_steam_never_returns(self):
+        h.save(self.run / "pending_relaunch.json", {"games": [{"appid": 570, "name": "dota"}]})
+        with patch.object(h, "command", return_value=""), patch.object(h.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "did not come back"):
+                h.relaunch_pending_games(1000, wait_seconds=2)
+            self.assertEqual(len(h.load_pending_games()), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
